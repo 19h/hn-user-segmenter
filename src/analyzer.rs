@@ -1,15 +1,11 @@
 use std::collections::HashMap;
 use std::fs::{DirEntry, File};
 use std::hash::BuildHasherDefault;
-use std::io::{BufReader, Read, Write};
-use std::ops::{AddAssign, Div};
-use std::ops::Mul;
+use std::io::Read;
 use std::path::Path;
 
-use cortical_io::density::{Density, Kde};
 use num::complex::ComplexFloat;
 use num::Float;
-use num_traits::FromPrimitive;
 use rayon::iter::IndexedParallelIterator;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
@@ -17,11 +13,10 @@ use twox_hash::XxHash;
 use zstd::Decoder;
 
 use serializer::deserialize;
-use text::text_item::TextItem;
 
 use crate::serializer::{extract_user, FnFeedback};
 use crate::text::STOPWORDS;
-use crate::text::text_item::{PooMap, PooMapInner};
+use crate::text::text_item::PooMapInner;
 
 mod text;
 mod serializer;
@@ -60,8 +55,8 @@ fn linear_to_srgb(c: f32) -> f32 {
     }
 }
 
-fn save_fingerpint(poo_map: &PooMapInner, name: &str, fp_type: &str) {
-    let mut gwf = {
+fn save_fingerpint(poo_map: &PooMapInner, name: &str, fp_type: &str) -> Option<()> {
+    let gwf = {
         let mut f =
             poo_map
                 .iter()
@@ -75,7 +70,7 @@ fn save_fingerpint(poo_map: &PooMapInner, name: &str, fp_type: &str) {
             .fold(
                 || HashMap::<Vec<u8>, u64, BuildHasherDefault<XxHash>>::default(),
                 |mut acc, (k, v)| {
-                    acc.insert(*k.clone(), **v);
+                    acc.insert((*k).clone(), **v);
                     acc
                 },
             )
@@ -91,10 +86,10 @@ fn save_fingerpint(poo_map: &PooMapInner, name: &str, fp_type: &str) {
             )
     };
 
-    let mut f =
+    let f =
         gwf
             .par_iter()
-            .map(|(k, v)| *v as u32)
+            .map(|(_k, v)| *v as u32)
             .collect::<Vec<_>>();
 
     let f_stddev = std_deviation(&f.iter().map(|x| *x as f32).collect::<Vec<_>>());
@@ -106,7 +101,7 @@ fn save_fingerpint(poo_map: &PooMapInner, name: &str, fp_type: &str) {
     println!("f_min: {}, f_max: {}", f_min, f_max);
     println!("f_mean: {}, f_stddev: {}", f_mean, f_stddev);
 
-    let mut f =
+    let f =
         f.par_iter()
             //.filter(|b| **b < f_min)
             .cloned()
@@ -130,7 +125,7 @@ fn save_fingerpint(poo_map: &PooMapInner, name: &str, fp_type: &str) {
         //&buffer.iter().map(|x| x.norm() as u32).collect::<Vec<_>>(),
         &f,
         10,
-        |p, i|
+        |p, _i|
             match p {
                 0 => [0, 0, 0],
                 //_ if densest_points.contains(&i) => [255, 0, 0],
@@ -144,9 +139,9 @@ fn save_fingerpint(poo_map: &PooMapInner, name: &str, fp_type: &str) {
                     let g2 = 0.0 / 255.0;
                     let b2 = 255.0 / 255.0;
 
-                    let r = (((r2 - r1) * p as f32 + r1) * 255.0) as u8;
-                    let g = (((g2 - g1) * p as f32 + g1) * 255.0) as u8;
-                    let b = (((b2 - b1) * p as f32 + b1) * 255.0) as u8;
+                    let _r = (((r2 - r1) * p as f32 + r1) * 255.0) as u8;
+                    let _g = (((g2 - g1) * p as f32 + g1) * 255.0) as u8;
+                    let _b = (((b2 - b1) * p as f32 + b1) * 255.0) as u8;
 
                     //[255 - p, (20 + p).max(255), (147 - p).min(0)]
                     [
@@ -156,7 +151,9 @@ fn save_fingerpint(poo_map: &PooMapInner, name: &str, fp_type: &str) {
                     ]
                 },
             },
-    ).save(&format!("./fps/{}.{}.png", name, fp_type)).unwrap();
+    )?.save(&format!("./fps/{}.{}.png", name, fp_type)).unwrap();
+
+    Some(())
 }
 
 fn run_for_file(path: &Path, username: Option<String>) {
@@ -205,10 +202,10 @@ fn run_for_file(path: &Path, username: Option<String>) {
 
     dbg!(poo.len());
 
-    let author_count = poo.len();
+    let _author_count = poo.len();
 
     // create a PooMap merging the frequencies of all comments by the same author
-    let mut poo_map = PooMapInner::new();
+    let poo_map = PooMapInner::new();
 
     poo
         .par_iter()
@@ -232,13 +229,11 @@ fn run_for_file(path: &Path, username: Option<String>) {
                 )
                 .reduce(
                     || PooMapInner::new(),
-                    |mut acc, freqs| {
-                        for (word, freq) in freqs.iter() {
-
-                        }
+                    |acc, freqs| {
+                        for (_word, _freq) in freqs.iter() {}
 
                         acc
-                    }
+                    },
                 )
         );
 
@@ -250,7 +245,7 @@ fn run_for_file(path: &Path, username: Option<String>) {
 
     authors.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
-    let mut authors = authors
+    let authors = authors
         .iter()
         .take(100)
         .collect::<Vec<_>>();

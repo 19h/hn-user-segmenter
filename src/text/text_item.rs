@@ -1,16 +1,11 @@
-use std::collections::{BTreeMap, HashMap};
-use std::iter::Cloned;
+use std::collections::BTreeMap;
 use std::ops::AddAssign;
-use std::str::SplitWhitespace;
 
-use lazy_static::lazy_static;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::serializer::FnFeedback;
-
-use super::EN_TOKENIZER;
 
 pub type PooMapRoot<K, V> = BTreeMap<K, V>;
 pub type PooMapBase<T> = BTreeMap<Vec<u8>, T>;

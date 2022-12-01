@@ -180,9 +180,9 @@ checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
 
 [[package]]
 name = "cortical-io"
-version = "0.1.10"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53eb9908c3c0d68bf2760052c62ad489919fdfa55f22f78f24c5da21fcfe6afe"
+checksum = "e48f5f9e92ab0d9640ef681ed9cc5ab93417dc242a0e66fc1fa0c51c6ca81582"
 dependencies = [
  "image",
  "num",

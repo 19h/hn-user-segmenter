@@ -1,28 +1,16 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs::{DirEntry, File};
-use std::hash::BuildHasherDefault;
-use std::io::{BufReader, Read, Write};
-use std::ops::{AddAssign, Div};
-use std::ops::Mul;
+use std::io::{Read, Write};
 use std::path::Path;
 
-use cortical_io::density::{Density, Kde};
 use kdam::{BarExt, Column, RichProgress, tqdm};
 use kdam::term::Colorizer;
-use num::complex::ComplexFloat;
-use num::Float;
-use num_traits::FromPrimitive;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
-use twox_hash::XxHash;
-use zstd::Decoder;
 
 use serializer::deserialize;
-use text::text_item::TextItem;
 
 use crate::serializer::{FnFeedback, serialize_with_writer};
-use crate::text::STOPWORDS;
-use crate::text::text_item::{PooMap, PooMapInner};
 
 mod text;
 mod serializer;
@@ -38,7 +26,7 @@ fn run_for_file(path: &Path, pb: &mut RichProgress) {
 
     let use_zstd = false;
 
-    let mut buf =
+    let buf =
         if use_zstd {
             match zstd::decode_all(&mut file) {
                 Ok(buf) => buf,

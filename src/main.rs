@@ -2,8 +2,8 @@
 
 extern crate core;
 
-use std::fs::{DirEntry, File};
-use std::io::{BufRead, BufReader, Error, Write};
+use std::fs::File;
+use std::io::{BufRead, Error, Write};
 use std::ops::AddAssign;
 use std::path::Path;
 
@@ -11,7 +11,6 @@ use kdam::{BarExt, Column, RichProgress, tqdm};
 use kdam::term::Colorizer;
 use rayon::prelude::*;
 use rocksdb::DB;
-use ruzstd::{FrameDecoder, StreamingDecoder};
 use serde::{Deserialize, Serialize};
 
 use crate::serializer::{FnFeedback, serialize_with_writer};
@@ -67,7 +66,7 @@ fn main() {
     let path = Path::new(&path);
     let name = path.file_name().unwrap().to_str().unwrap();
 
-    let mut db = match DB::open_default(path) {
+    let db = match DB::open_default(path) {
         Ok(db) => { db }
         Err(e) => { panic!("failed to open database: {:?}", e) }
     };
@@ -147,7 +146,7 @@ fn main() {
             )
             .reduce(
                 || PooMap::new(),
-                |mut acc, mut all_freqs| {
+                |mut acc, all_freqs| {
                     for (author, freqs) in all_freqs.iter() {
                         let author_map =
                             &mut acc

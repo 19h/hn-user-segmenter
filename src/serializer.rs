@@ -1,12 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write;
-use std::ops::Sub;
-use std::path::Path;
 
-use kdam::term::Colorizer;
 use zstd::zstd_safe::WriteBuf;
 
-use crate::text::text_item::{PooMap, PooMapBase, PooMapInner, PooMapRoot};
+use crate::text::text_item::{PooMap, PooMapInner};
 
 pub enum FnFeedback {
     Message(String),
@@ -21,7 +17,7 @@ pub fn serialize_with_writer<W: Write>(
     writer: &mut W,
     mut fn_feedback: impl FnMut(FnFeedback) -> (),
 ) -> std::io::Result<()> {
-    let mut serbuf = data.iter().collect::<Vec<_>>();
+    let serbuf = data.iter().collect::<Vec<_>>();
 
     let mut i = 0u64;
 
@@ -302,7 +298,7 @@ pub fn deserialize(
 
 pub fn try_deserialize_Nov2022A(
     data: &[u8],
-    mut fn_feedback: impl FnMut(FnFeedback) -> (),
+    fn_feedback: impl FnMut(FnFeedback) -> (),
 ) -> PooMap {
     try_deserialize_original(
         &data[28..],
