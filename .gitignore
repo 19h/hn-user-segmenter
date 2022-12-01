@@ -4,3 +4,5 @@ freqs/
 *.zst
 *.freqs
 .idea
+*.users.freqs*
+fps/

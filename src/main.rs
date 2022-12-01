@@ -2,7 +2,6 @@
 
 extern crate core;
 
-
 use std::fs::{DirEntry, File};
 use std::io::{BufRead, BufReader, Error, Write};
 use std::ops::AddAssign;
@@ -11,20 +10,25 @@ use std::path::Path;
 use kdam::{BarExt, Column, RichProgress, tqdm};
 use kdam::term::Colorizer;
 use rayon::prelude::*;
+use rocksdb::DB;
 use ruzstd::{FrameDecoder, StreamingDecoder};
 use serde::{Deserialize, Serialize};
 
-use crate::text::text_item::{PooMap, TextItem};
+use crate::serializer::{FnFeedback, serialize_with_writer};
+use crate::text::text_item::{PooMap, PooMapInner, TextItem};
 
 pub mod text;
+pub mod serializer;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Comment {
-    //pub author: String,
-    pub body: String,
-    //#[serde(rename = "created_utc")]
-    //pub created_utc: u64,
+struct Item {
+    pub by: Option<String>,
+    pub id: i64,
+    pub kids: Option<Vec<i64>>,
+    pub parent: Option<i64>,
+    pub text: Option<String>,
+    pub time: Option<i64>,
+    pub r#type: Option<String>,
 }
 
 fn read_until<R: BufRead + ?Sized>(r: &mut R, delim: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
@@ -57,22 +61,22 @@ fn read_until<R: BufRead + ?Sized>(r: &mut R, delim: u8, buf: &mut Vec<u8>) -> R
     }
 }
 
-fn run_for_file(path: &Path) {
-    let name = path.file_name().unwrap().to_str().unwrap().to_string();
+fn main() {
+    // find folder located at first argument
+    let path = std::env::args().nth(1).expect("No path provided");
+    let path = Path::new(&path);
+    let name = path.file_name().unwrap().to_str().unwrap();
 
-    let mut dec = FrameDecoder::new();
-
-    dec.init(File::open(path).unwrap()).unwrap();
+    let mut db = match DB::open_default(path) {
+        Ok(db) => { db }
+        Err(e) => { panic!("failed to open database: {:?}", e) }
+    };
 
     let mut ti = TextItem::new();
 
-    let size = dec.content_size().unwrap_or(0) as usize;
-
-    println!("size: {} GB", size as f64 / 1024.0 / 1024.0 / 1024.0);
-
     let mut pb = RichProgress::new(
         tqdm!(
-            total = size,
+            total = 0,
             unit_scale = true,
             unit_divisor = 1024,
             unit = "B"
@@ -98,134 +102,119 @@ fn run_for_file(path: &Path) {
         ],
     );
 
-    pb.write(format!("Loading zstd for file {}...", name).colorize("bold blue"));
-
-    let mut file = File::open(path).unwrap();
-    let mut decoder =
-        BufReader::new(StreamingDecoder::new(&mut file).unwrap());
-
     pb.write(format!("Processing {}...", name).colorize("green"));
 
-    let mut len_read = 0usize;
-    let mut i = 0u64;
+    ti.ingest(
+        &db.iterator(rocksdb::IteratorMode::Start)
+            .par_bridge()
+            .filter_map(|v| {
+                v
+                    .ok()
+                    .map(|(k, mut v)| {
+                        let mut kbuf = [0u8; 8];
+                        kbuf.copy_from_slice(&k[..8]);
+                        let k = i64::from_be_bytes(kbuf);
 
-    let per_iter = 10000usize;
+                        print!("\r{}", k as usize);
 
-    let mut err_cnt = 0usize;
+                        simd_json::from_slice(&mut v[..]).ok()
+                    })
+                    .flatten()
+            })
+            .filter_map(|i: Item|
+                Some((
+                    i.by?.as_bytes().to_vec(),
+                    TextItem::process_alt(&(i.text?)),
+                ))
+            )
+            .fold(
+                || PooMap::new(),
+                |mut acc, (author, freqs)| {
+                    let author_map =
+                        &mut acc
+                            .entry(author.clone())
+                            .or_insert_with(PooMapInner::new);
 
-    'a: loop {
-        let mut comments = Vec::<String>::new();
-
-        'b: for _ in 0..per_iter {
-            let mut line = Vec::new();
-
-            if let Err(x) = read_until(&mut decoder, b'\n', &mut line) {
-                dbg!(x);
-
-                break 'a;
-            }
-
-            if line.len() == 0 {
-                err_cnt += 1;
-
-                if err_cnt > 100 {
-                    break 'a;
-                }
-
-                break 'b;
-            }
-
-            match serde_json::from_slice::<Comment>(&line) {
-                Ok(x) => comments.push(x.body),
-                Err(x) => {
-                    err_cnt += 1;
-
-                    if err_cnt > 100 {
-                        break 'a;
+                    for (word, freq) in freqs.iter() {
+                        author_map
+                            .entry(word.clone())
+                            .or_insert(0)
+                            .add_assign(*freq);
                     }
 
-                    continue;
-                }
-            }
+                    acc
+                },
+            )
+            .reduce(
+                || PooMap::new(),
+                |mut acc, mut all_freqs| {
+                    for (author, freqs) in all_freqs.iter() {
+                        let author_map =
+                            &mut acc
+                                .entry(author.clone())
+                                .or_insert_with(PooMapInner::new);
 
-            len_read += line.len();
-            i += 1;
-        }
-
-        let freq_map: PooMap =
-            comments
-                .par_iter()
-                .map(|comment| TextItem::process_alt(&comment))
-                .fold(
-                    || PooMap::new(),
-                    |mut acc, freqs| {
                         for (word, freq) in freqs.iter() {
-                            acc.entry(word.clone())
+                            author_map
+                                .entry(word.clone())
                                 .or_insert(0)
                                 .add_assign(*freq);
                         }
+                    }
 
-                        acc
-                    },
-                )
-                .reduce(
-                    || PooMap::new(),
-                    |mut acc, mut freqs| {
-                        for (word, freq) in freqs.iter() {
-                            acc.entry(word.clone())
-                                .or_insert(0)
-                                .add_assign(*freq);
-                        }
-
-                        acc
-                    },
-                );
-
-        ti.ingest(&freq_map);
-
-        pb.update_to(len_read);
-    }
+                    acc
+                },
+            ),
+        |fb|
+            match fb {
+                FnFeedback::Message(msg) => {
+                    pb.write(format!("{}", msg).colorize("green"));
+                },
+                FnFeedback::Total(total) => {
+                    pb.pb.set_total(total as usize);
+                },
+                FnFeedback::Tick => {
+                    pb.pb.update(1);
+                },
+                _ => {},
+            },
+    );
 
     let mut file =
         File::create(
             path
                 .clone()
                 .with_file_name(
-                    format!("{}.freqs", &name),
+                    format!("{}.users.freqs", &name),
                 )
         ).unwrap();
 
-    let val = bincode::serialize(&ti.dump()).unwrap();
-    //let val = zstd::encode_all(val.as_slice(), 20).unwrap();
+    let mut encoder = zstd::stream::Encoder::new(&mut file, 10).unwrap();
 
-    file.write_all(&val).unwrap();
-}
+    pb.pb.set_total(ti.word_freqs.len());
 
-fn main() {
-    // find folder located at first argument
-    let path = std::env::args().nth(1).expect("No path provided");
-    let path = std::path::Path::new(&path);
+    serialize_with_writer(
+        &ti.word_freqs,
+        &mut encoder,
+        |fb|
+            match fb {
+                FnFeedback::Message(msg) => {
+                    pb.write(format!("{}", msg).colorize("green"));
+                },
+                FnFeedback::Total(total) => {
+                    pb.pb.set_total(total as usize);
+                },
+                FnFeedback::Progress(progress) => {
+                    pb.update_to(progress as usize);
+                },
+                _ => {},
+            },
+    )
+        .map_err(|x|
+            eprintln!("Error serializing: {}", x)
+        );
 
-    // find all files in folder
-    let files = std::fs::read_dir(path).expect("Could not read directory");
-
-    // filter for files ending with .zst
-    let mut files =
-        files
-            .filter_map(|f| f.ok())
-            .filter(|f| {
-                f.path()
-                    .extension()
-                    .map(|ext| ext == "zst")
-                    .unwrap_or(false)
-            })
-            .collect::<Vec<DirEntry>>();
-
-    files.sort_by(|a, b| a.path().file_name().cmp(&b.path().file_name()));
-
-    files
-        .iter()
-        .for_each(|f| {
-            run_for_file(&f.path());
-        });
+    if let Err(e) = encoder.finish() {
+        eprintln!("Error finalizing file: {}", e);
+    }
 }
